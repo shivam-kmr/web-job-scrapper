@@ -7,10 +7,15 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import redis
 from flask import Flask, jsonify
 
-# File to store the last fetched data
-DATA_FILE = "sarkari_results_data.json"
+# Flask app for health check API
+app = Flask(__name__)
+
+# Redis configuration
+REDIS_URL = os.getenv("REDIS_URL")  # Your Redis URL
+r = redis.from_url(REDIS_URL)  # Connecting to Redis
 
 # Msg91 SMTP Settings
 SMTP_SERVER = "smtp.mailer91.com"
@@ -19,21 +24,6 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL")  # Access from environment variable
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")  # Access from environment variable
 EMAIL_FROM = "noreply-splitpe@shivamkmr.com"
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL")  # Access from environment variable
-
-app = Flask(__name__)
-
-@app.route("/health", methods=["GET"])
-def health_check():
-    """Health check endpoint"""
-    try:
-        # Perform a simple check, like pinging an external URL or checking a task
-        response = requests.get("https://www.sarkariresult.com/")
-        if response.status_code == 200:
-            return jsonify({"status": "ok", "message": "Service is running"}), 200
-        else:
-            return jsonify({"status": "error", "message": "Service is down"}), 500
-    except Exception as e:
-        return jsonify({"status": "error", "message": str(e)}), 500
 
 def fetch_post_data():
     url = "https://www.sarkariresult.com/"  # Sarkari Results URL
@@ -60,16 +50,16 @@ def fetch_post_data():
 
     return posts
 
-def load_previous_data():
-    if not os.path.exists(DATA_FILE):
-        return []
+def load_previous_data_from_redis():
+    # Get the previous data from Redis
+    previous_data = r.get("sarkari_results_data")
+    if previous_data:
+        return json.loads(previous_data)
+    return []
 
-    with open(DATA_FILE, "r") as file:
-        return json.load(file)
-
-def save_current_data(data):
-    with open(DATA_FILE, "w") as file:
-        json.dump(data, file, indent=4)
+def save_current_data_to_redis(data):
+    # Save the current data to Redis
+    r.set("sarkari_results_data", json.dumps(data))
 
 def scrape_additional_data(post_url):
     response = requests.get(post_url)
@@ -131,25 +121,31 @@ def scrape_and_check():
         print("Skipping this run due to fetch failure.")
         return
 
-    old_data = load_previous_data()
+    old_data = load_previous_data_from_redis()
     compare_and_report_differences(new_data, old_data)
-    save_current_data(new_data)
+    save_current_data_to_redis(new_data)
 
 # Schedule the job to run every 5 seconds
 schedule.every(5).seconds.do(scrape_and_check)
 
-# Run the job initially
-scrape_and_check()
+# Health check API
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({"status": "ok", "message": "The service is running."}), 200
 
-# Start Flask server to listen for health check
+# Run the Flask app in a separate thread to allow the scheduler to run concurrently
 if __name__ == "__main__":
-    # Flask will handle the health check API, and schedule will keep scraping
-    from threading import Thread
-    flask_thread = Thread(target=app.run, kwargs={"host": "0.0.0.0", "port": int(os.environ.get("PORT", 10000))})
-    flask_thread.daemon = True
-    flask_thread.start()
+    import threading
 
-    # Keep the script running to handle scheduled tasks
-    while True:
-        schedule.run_pending()
-        time.sleep(1)
+    def run_scheduler():
+        while True:
+            schedule.run_pending()
+            time.sleep(1)
+
+    # Start the scheduler in a separate thread
+    scheduler_thread = threading.Thread(target=run_scheduler)
+    scheduler_thread.daemon = True
+    scheduler_thread.start()
+
+    # Run the Flask app for health check API
+    app.run(host='0.0.0.0', port=5000)
