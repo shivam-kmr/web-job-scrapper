@@ -22,7 +22,7 @@ SMTP_SERVER = "smtp.mailer91.com"
 SMTP_PORT = 587
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")  # Access from environment variable
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")  # Access from environment variable
-EMAIL_FROM = "noreply-splitpe@shivamkmr.com"
+EMAIL_FROM = os.getenv("SENDER_EMAIL_FROM")
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL")  # Access from environment variable
 
 def fetch_post_data():
@@ -81,7 +81,7 @@ def send_email(subject, body):
         server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
         server.starttls()
         server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.sendmail(SENDER_EMAIL, RECIPIENT_EMAIL, msg.as_string())
+        server.sendmail(EMAIL_FROM, RECIPIENT_EMAIL, msg.as_string())
         server.quit()
         print("Email sent successfully.")
     except Exception as e:
@@ -126,7 +126,7 @@ def scrape_and_check():
     save_current_data_to_redis(new_data)
 
 # Schedule the job to run every 5 seconds
-schedule.every(5).seconds.do(scrape_and_check)
+schedule.every(30).seconds.do(scrape_and_check)
 
 # Health check API
 @app.route('/health', methods=['GET'])
