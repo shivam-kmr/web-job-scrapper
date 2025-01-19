@@ -7,6 +7,7 @@ import os
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from flask import Flask, jsonify
 
 # File to store the last fetched data
 DATA_FILE = "sarkari_results_data.json"
@@ -18,6 +19,21 @@ SENDER_EMAIL = os.getenv("SENDER_EMAIL")  # Access from environment variable
 SENDER_PASSWORD = os.getenv("SENDER_PASSWORD")  # Access from environment variable
 EMAIL_FROM = "noreply-splitpe@shivamkmr.com"
 RECIPIENT_EMAIL = os.getenv("RECIPIENT_EMAIL")  # Access from environment variable
+
+app = Flask(__name__)
+
+@app.route("/health", methods=["GET"])
+def health_check():
+    """Health check endpoint"""
+    try:
+        # Perform a simple check, like pinging an external URL or checking a task
+        response = requests.get("https://www.sarkariresult.com/")
+        if response.status_code == 200:
+            return jsonify({"status": "ok", "message": "Service is running"}), 200
+        else:
+            return jsonify({"status": "error", "message": "Service is down"}), 500
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 def fetch_post_data():
     url = "https://www.sarkariresult.com/"  # Sarkari Results URL
@@ -122,11 +138,18 @@ def scrape_and_check():
 # Schedule the job to run every 5 seconds
 schedule.every(5).seconds.do(scrape_and_check)
 
-print("Script started. Press Ctrl+C to stop.")
 # Run the job initially
 scrape_and_check()
 
-# Keep the script running
-while True:
-    schedule.run_pending()
-    time.sleep(1)
+# Start Flask server to listen for health check
+if __name__ == "__main__":
+    # Flask will handle the health check API, and schedule will keep scraping
+    from threading import Thread
+    flask_thread = Thread(target=app.run, kwargs={"host": "0.0.0.0", "port": int(os.environ.get("PORT", 10000))})
+    flask_thread.daemon = True
+    flask_thread.start()
+
+    # Keep the script running to handle scheduled tasks
+    while True:
+        schedule.run_pending()
+        time.sleep(1)
